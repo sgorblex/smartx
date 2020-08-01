@@ -1,19 +1,20 @@
 #!/bin/sh
 
 # TODO
-# make prettier wm names
-# find out which sessions are installed (see below). Note: if the command has arguments, ignore them
+# fix argument and return values as echos instead of using global variables
+# support multiple word names(?)
 # ...
 
 # add your WM's starting command in the list if it doesn't appear. If there's more then one, separate them with ; or &&. The last command must be the one which actually starts the session and should start with exec.
-declare -A sessions
-sessions[i3]="exec i3"
-sessions[openbox]="exec openbox-session"
-sessions[bspwm]="exec bspwm"
-sessions[awesome]="exec awesome"
-sessions['kde plasma']="export DESKTOP_SESSION=plasma; exec startplasma-x11"
-sessions[gnome]="export XDG_SESSION_TYPE=x11; export GDK_BACKEND=x11; exec gnome-session"
-sessions[xfce]="exec startxfce4"
+declare -A possible_sessions
+possible_sessions[i3]="exec i3"
+possible_sessions[Openbox]="exec openbox-session"
+possible_sessions[bspwm]="exec bspwm"
+possible_sessions[awesome]="exec awesome"
+possible_sessions[Plasma]="export DESKTOP_SESSION=plasma; exec startplasma-x11"
+possible_sessions[GNOME]="export XDG_SESSION_TYPE=x11; export GDK_BACKEND=x11; exec gnome-session"
+possible_sessions[Xfce]="exec startxfce4"
+possible_sessions[dwm]="exec dwm"
 
 
 # identify what tui command to use
@@ -29,10 +30,11 @@ function tui_choose {
 }
 
 
+# is_display_taken checks if an X display is already open for the given number
 function is_display_taken {
 	for disp in $(ls /tmp/.X11-unix)
 	do
-		if [[ display -eq ${disp#X} ]]
+		if [[ $1 -eq ${disp#X} ]]
 		then
 			return 0
 		fi
@@ -41,6 +43,25 @@ function is_display_taken {
 }
 
 
+# menu determines which sessions are available and lets the user choose
+function menu {
+	# for the sessions available, add name and null string for the tui (dialog/whiptail needs an item string for each object, since we don't use it we set it to NULL)
+	menu_entries=()
+	for session in ${!possible_sessions[@]}
+	do
+		full_cmd=${possible_sessions[$session]}
+		exec_cmd=${full_cmd#*exec }
+		if $(command -v ${exec_cmd% *} &> /dev/null)
+		then
+			menu_entries+=($session)
+			menu_entries+=('NULL')
+		fi
+	done
+
+	local chosen_session=$(whiptail --title "smartx" --noitem --menu "Choose a window manager / desktop environment to start" 18 60 10 ${menu_entries[@]} 3>&1 1>&2 2>&3)
+	
+	echo $chosen_session
+}
 
 
 
@@ -55,7 +76,7 @@ fi
 
 # set DISPLAY as the first non-used number
 display=0
-while $(is_display_taken)
+while $(is_display_taken $display)
 do
 	(( display++ ))
 done
@@ -63,15 +84,13 @@ done
 export DISPLAY=:$display
 
 
-# find out which sessions are installed
-#	${sessions[@]#*exec }
-# ...
-
+chosen_session=$(menu)
+clear
+if [[ -z $chosen_session ]]
+then
+	echo Canceled
+	exit
+fi
 
 script_path=$(realpath $0)
-echo path: $script_path
-select session in ${!sessions[@]}
-do
-	startx ${script_path%/*}/smartxrc ${sessions[$session]}
-	break
-done
+startx ${script_path%/*}/smartxrc ${possible_sessions[$chosen_session]}
